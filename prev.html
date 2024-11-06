@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Aquarium</title>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #e0f7fa;
+            font-family: Arial, sans-serif;
+        }
+        #aquarium {
+            border: 2px solid #00796b;
+            border-radius: 10px;
+            background-color: #b2ebf2;
+        }
+        h1 {
+            color: #00796b;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+<h1>Interactive Fish Aquarium</h1>
+<canvas id="aquarium" width="800" height="400"></canvas>
+
+<script>
+    const canvas = document.getElementById("aquarium");
+    const ctx = canvas.getContext("2d");
+
+    const getRandom = (min, max) => Math.random() * (max - min) + min;
+
+    // Food class
+    class Food {
+        constructor(x, y) {
+            this.x = x;
+            this.y = y;
+            this.size = 5;
+            this.floatSpeed = 0.3;
+            this.sinkSpeed = getRandom(0.1, 0.5);
+            this.isFloating = true;
+            this.lifeTime = 300; // Food will disappear after 300 frames
+        }
+
+        update() {
+            if (this.isFloating) {
+                this.y -= this.floatSpeed;
+                if (Math.random() < 0.05) this.isFloating = false;
+            } else {
+                this.y += this.sinkSpeed;
+            }
+
+            // Decrease lifeTime and remove food if it reaches the bottom
+            this.lifeTime -= 1;
+            if (this.y > canvas.height - 20 || this.lifeTime <= 0) {
+                this.y = canvas.height - 20;
+                aquarium.removeFood(this); // Remove food when it reaches the bottom
+            }
+        }
+
+        draw() {
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+            ctx.fillStyle = "#FFD700";
+            ctx.fill();
+        }
+    }
+
+    // Fish class
+    class Fish {
+        constructor() {
+            this.x = getRandom(50, canvas.width - 50);
+            this.y = getRandom(50, canvas.height - 50);
+            this.size = getRandom(10, 20);
+            this.color = `hsl(${Math.floor(getRandom(0, 360))}, 60%, 50%)`;
+            this.speed = 0.5;
+            this.angle = getRandom(0, Math.PI * 2);
+            this.targetFood = null;
+            this.detectRadius = 100;
+            this.boostSpeed = 1.5; // Boost speed for food chase
+            this.isBoosting = false;
+            this.foodEaten = 0;
+        }
+
+        findClosestFood(foods) {
+            let closestDistance = this.detectRadius;
+            this.targetFood = null;
+            foods.forEach(food => {
+                const distance = Math.hypot(food.x - this.x, food.y - this.y);
+                if (distance < closestDistance) {
+                    closestDistance = distance;
+                    this.targetFood = food;
+                }
+            });
+        }
+
+        rotateTowards(targetX, targetY) {
+            const angleToTarget = Math.atan2(targetY - this.y, targetX - this.x);
+            const angleDiff = angleToTarget - this.angle;
+            this.angle += angleDiff * 0.05; // Smooth rotation
+        }
+
+        move() {
+            if (!this.targetFood || Math.random() < 0.01) {
+                aquarium.foodArray.length > 0 && this.findClosestFood(aquarium.foodArray);
+            }
+
+            if (this.targetFood) {
+                this.rotateTowards(this.targetFood.x, this.targetFood.y);
+                
+                // Occasionally boost speed when chasing food
+                if (Math.random() < 0.1) this.isBoosting = true;
+                const speed = this.isBoosting ? this.boostSpeed : this.speed;
+                
+                const dx = Math.cos(this.angle) * speed;
+                const dy = Math.sin(this.angle) * speed;
+                this.x += dx;
+                this.y += dy;
+
+                // Consume food if within range
+                if (Math.hypot(this.targetFood.x - this.x, this.targetFood.y - this.y) < this.size / 2) {
+                    aquarium.removeFood(this.targetFood);
+                    this.targetFood = null;
+                    this.foodEaten++;
+                    this.grow();
+                }
+
+                this.isBoosting = false; // Reset boosting after movement
+            } else {
+                // Swim randomly if no food is targeted
+                this.x += Math.cos(this.angle) * this.speed;
+                this.y += Math.sin(this.angle) * this.speed;
+                this.angle += getRandom(-0.05, 0.05);
+            }
+
+            // Ensure fish stay within bounds
+            if (this.x < this.size) {
+                this.x = this.size;
+                this.angle = Math.PI - this.angle;
+            }
+            if (this.x > canvas.width - this.size) {
+                this.x = canvas.width - this.size;
+                this.angle = Math.PI - this.angle;
+            }
+            if (this.y < this.size) {
+                this.y = this.size;
+                this.angle = -this.angle;
+            }
+            if (this.y > canvas.height - this.size) {
+                this.y = canvas.height - this.size;
+                this.angle = -this.angle;
+            }
+        }
+
+        grow() {
+            // Fish grows after eating a certain amount of food
+            if (this.foodEaten % 3 === 0) { 
+                this.size += getRandom(1, 3);
+                this.detectRadius += 5;
+                
+                // Fish can eat smaller fish if big enough
+                aquarium.fishArray.forEach(fish => {
+                    if (fish !== this && fish.size < this.size - 5) {
+                        const distance = Math.hypot(fish.x - this.x, fish.y - this.y);
+                        if (distance < this.size) {
+                            aquarium.removeFish(fish);
+                        }
+                    }
+                });
+            }
+        }
+
+        draw() {
+            ctx.save();
+            ctx.translate(this.x, this.y);
+            ctx.rotate(this.angle);
+            // Draw fish body
+            ctx.beginPath();
+            ctx.ellipse(0, 0, this.size, this.size / 2, 0, 0, Math.PI * 2);
+            ctx.fillStyle = this.color;
+            ctx.fill();
+            // Draw tail
+            ctx.beginPath();
+            ctx.moveTo(-this.size, 0);
+            ctx.lineTo(-this.size * 1.5, this.size / 2);
+            ctx.lineTo(-this.size * 1.5, -this.size / 2);
+            ctx.closePath();
+            ctx.fillStyle = this.color;
+            ctx.fill();
+            ctx.restore();
+        }
+    }
+
+    // Aquarium class
+    class Aquarium {
+        constructor() {
+            this.fishArray = [];
+            this.foodArray = [];
+        }
+
+        addFish(num) {
+            for (let i = 0; i < num; i++) {
+                this.fishArray.push(new Fish());
+            }
+        }
+
+        addFood(x, y) {
+            this.foodArray.push(new Food(x, y));
+            this.fishArray.forEach(fish => fish.findClosestFood(this.foodArray));
+        }
+
+        removeFood(food) {
+            this.foodArray = this.foodArray.filter(f => f !== food);
+        }
+
+        removeFish(fish) {
+            this.fishArray = this.fishArray.filter(f => f !== fish);
+        }
+
+        drawBackground() {
+            // Draw seabed
+            ctx.fillStyle = "#3E2723";
+            ctx.fillRect(0, canvas.height - 20, canvas.width, 20);
+
+            // Draw seaweed
+            ctx.fillStyle = "#388E3C";
+            for (let i = 0; i < 10; i++) {
+                const x = getRandom(10, canvas.width - 10);
+                ctx.beginPath();
+                ctx.moveTo(x, canvas.height);
+                ctx.lineTo(x - 5, canvas.height - 50);
+                ctx.lineTo(x + 5, canvas.height - 50);
+                ctx.closePath();
+                ctx.fill();
+            }
+        }
+
+        update() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            this.drawBackground();
+
+            this.foodArray.forEach(food => {
+                food.update();
+                food.draw();
+            });
+
+            this.fishArray.forEach(fish => {
+                fish.move();
+                fish.draw();
+            });
+        }
+    }
+
+    // Initialize aquarium
+    const aquarium = new Aquarium();
+    aquarium.addFish(10);
+
+    canvas.addEventListener("click", (e) => {
+        const rect = canvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        aquarium.addFood(x, y);
+    });
+
+    function animate() {
+        aquarium.update();
+        requestAnimationFrame(animate);
+    }
+
+    animate();
+</script>
+
+</body>
+</html>
